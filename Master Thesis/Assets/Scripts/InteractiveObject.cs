@@ -22,7 +22,11 @@ void Update()
 {
     if (Input.GetKeyDown(KeyCode.R))
     {
-        FindObjectOfType<InteractiveObject>().ResetPosition();
+        InteractiveObject interactiveObject = FindFirstObjectByType<InteractiveObject>();
+        if (interactiveObject != null)
+        {
+            interactiveObject.ResetPosition();
+        }
     }
 }
     void FixedUpdate()
