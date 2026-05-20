@@ -56,5 +56,6 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "research-project.sln"
+    "dotnet.defaultSolution": "Master Thesis.sln",
+    "dotnet.preferCSharpExtension": true
 }
