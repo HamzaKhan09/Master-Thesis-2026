@@ -2,8 +2,9 @@ using UnityEngine;
 
 public class AvatarHandIK : MonoBehaviour
 {
-    private static readonly Vector3 LeftHandRetargetOffsetEuler = new Vector3(-5f, 0f, 42f);
-    private static readonly Vector3 RightHandRetargetOffsetEuler = new Vector3(-5f, 0f, -42f);
+    [Header("Hand Rotation Offsets")]
+    public Vector3 leftHandRotationOffset = new Vector3(-5f, 0f, 42f);
+    public Vector3 rightHandRotationOffset = new Vector3(-5f, 0f, -42f);
 
     public Animator animator;
     public Transform vrLeftHandTarget;
@@ -20,6 +21,9 @@ public class AvatarHandIK : MonoBehaviour
     [Header("Finger Curl Tuning")]
     public Vector3 fingerCurlAxis = Vector3.right;
     public float fingerCurlDirection = 1f;
+    public Vector3 thumbCurlAxis = Vector3.right;
+    public float thumbCurlDirection = 1f;
+    public float leftThumbCurlDirection = 1f;
     public float openHandCorrectionDegrees = -35f;
     public float maxFingerCurlDegrees = 105f;
     public float maxThumbCurlDegrees = 70f;
@@ -133,7 +137,7 @@ public class AvatarHandIK : MonoBehaviour
             animator.SetIKPositionWeight(AvatarIKGoal.LeftHand, ikWeight);
             animator.SetIKRotationWeight(AvatarIKGoal.LeftHand, ikWeight);
             animator.SetIKPosition(AvatarIKGoal.LeftHand, vrLeftHandTarget.position);
-            animator.SetIKRotation(AvatarIKGoal.LeftHand, ApplyRotationOffset(vrLeftHandTarget.rotation, LeftHandRetargetOffsetEuler));
+            animator.SetIKRotation(AvatarIKGoal.LeftHand, ApplyRotationOffset(vrLeftHandTarget.rotation, leftHandRotationOffset));
         }
 
         if (vrRightHandTarget != null)
@@ -141,7 +145,7 @@ public class AvatarHandIK : MonoBehaviour
             animator.SetIKPositionWeight(AvatarIKGoal.RightHand, ikWeight);
             animator.SetIKRotationWeight(AvatarIKGoal.RightHand, ikWeight);
             animator.SetIKPosition(AvatarIKGoal.RightHand, vrRightHandTarget.position);
-            animator.SetIKRotation(AvatarIKGoal.RightHand, ApplyRotationOffset(vrRightHandTarget.rotation, RightHandRetargetOffsetEuler));
+            animator.SetIKRotation(AvatarIKGoal.RightHand, ApplyRotationOffset(vrRightHandTarget.rotation, rightHandRotationOffset));
         }
 
         if (fingerTrackingEnabled)
@@ -160,8 +164,8 @@ public class AvatarHandIK : MonoBehaviour
 
             if (fingerPoseCalibrated)
             {
-                ApplyFingerCurl(leftFingerMaps);
-                ApplyFingerCurl(rightFingerMaps);
+                ApplyFingerCurl(leftFingerMaps, isLeft: true);
+                ApplyFingerCurl(rightFingerMaps, isLeft: false);
             }
         }
 
@@ -254,9 +258,10 @@ public class AvatarHandIK : MonoBehaviour
         }
     }
 
-    private void ApplyFingerCurl(FingerCurlMap[] maps)
+    private void ApplyFingerCurl(FingerCurlMap[] maps, bool isLeft)
     {
-        Vector3 axis = fingerCurlAxis.sqrMagnitude > 0f ? fingerCurlAxis.normalized : Vector3.right;
+        Vector3 fAxis = fingerCurlAxis.sqrMagnitude > 0f ? fingerCurlAxis.normalized : Vector3.right;
+        Vector3 tAxis = thumbCurlAxis.sqrMagnitude > 0f ? thumbCurlAxis.normalized : fAxis;
 
         for (int i = 0; i < maps.Length; i++)
         {
@@ -271,10 +276,13 @@ public class AvatarHandIK : MonoBehaviour
                 continue;
             }
 
+            bool isThumb = maps[i].IsThumb;
             float rawCurl = Mathf.Max(0f, MeasureCurl(maps[i]) - maps[i].OpenCurl);
             float normalizedCurl = Mathf.Clamp01(rawCurl / trackedCurlDegreesForFullFist);
-            float maxCurl = maps[i].IsThumb ? maxThumbCurlDegrees : maxFingerCurlDegrees;
-            float curlDegrees = openHandCorrectionDegrees + (normalizedCurl * maxCurl * fingerCurlDirection);
+            float maxCurl = isThumb ? maxThumbCurlDegrees : maxFingerCurlDegrees;
+            float direction = isThumb ? (isLeft ? leftThumbCurlDirection : thumbCurlDirection) : fingerCurlDirection;
+            Vector3 axis = isThumb ? tAxis : fAxis;
+            float curlDegrees = openHandCorrectionDegrees + (normalizedCurl * maxCurl * direction);
 
             SetFingerBone(maps[i].ProximalBone, maps[i].ProximalStartRotation, axis, curlDegrees * 0.45f);
             SetFingerBone(maps[i].IntermediateBone, maps[i].IntermediateStartRotation, axis, curlDegrees * 0.7f);
