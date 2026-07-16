@@ -302,6 +302,10 @@ public class MediaPipePoseReceiver : MonoBehaviour
             renderer.material = sphereMaterial;
         }
 
+        // These GameObjects are IK position targets consumed by AvatarLegsIK, not just
+        // visual debug aids — keep them, but hide the mesh so they don't render in-game.
+        sphere.GetComponent<Renderer>().enabled = false;
+
         return sphere.transform;
     }
 

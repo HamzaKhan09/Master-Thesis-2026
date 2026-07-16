@@ -128,6 +128,18 @@ public class AvatarHandIK : MonoBehaviour
         CacheAvatarFingerRestPose(rightFingerMaps);
     }
 
+    void LateUpdate()
+    {
+        // Meta's HandVisual re-enables its renderer every Update() (_updateVisibility),
+        // which undoes the one-shot hide in Start(). Re-hide after all Updates run so the
+        // tracked hand mesh ("shadow hands") never flashes back on.
+        if (hideTrackedHandVisuals)
+        {
+            HideHandVisuals(leftFingerSourceRoot);
+            HideHandVisuals(rightFingerSourceRoot);
+        }
+    }
+
     void OnAnimatorIK(int layerIndex)
     {
         if (animator == null) return;
