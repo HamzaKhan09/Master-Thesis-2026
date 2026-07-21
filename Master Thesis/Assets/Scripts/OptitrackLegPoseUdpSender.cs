@@ -13,7 +13,7 @@ public class OptitrackLegPoseUdpSender : MonoBehaviour
     [Header("OptiTrack Source")]
     public OptitrackStreamingClient streamingClient;
     [Tooltip("Must match the Skeleton Asset Name configured in Motive.")]
-    public string skeletonAssetName = "Skeleton1";
+    public string skeletonAssetName = "Skeleton";
 
     [Header("UDP Target")]
     [Tooltip("Port the receiving MediaPipePoseReceiver instance is listening on for this condition. Use a different port than the webcam/MeTRAbs receivers.")]

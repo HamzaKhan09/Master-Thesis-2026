@@ -23,7 +23,7 @@ public class TrackingManager : MonoBehaviour
     public KeyCode switchKey = KeyCode.C;
 
     [Header("Sources")]
-    [Tooltip("Existing MediaPipe receiver. Left running in both conditions so DataLogger can log it every frame; it just doesn't drive the legs in MetaOnly.")]
+    [Tooltip("Existing MediaPipe receiver. Left running in both conditions so switching back to RGB is instant; it just doesn't drive the legs in MetaOnly. DataLogger reads the avatar's own bones, not this receiver directly.")]
     public MediaPipePoseReceiver rgbPoseProvider;
     [Tooltip("Owns the AvatarLegsIK / retargeter hand-off.")]
     public LegSimulator legSimulator;
@@ -76,9 +76,8 @@ public class TrackingManager : MonoBehaviour
             }
         }
 
-        // NOTE: rgbPoseProvider is intentionally NOT disabled here. The briefing asks that
-        // BOTH sources be logged every frame, so the receiver keeps running as a data
-        // source; only its influence on the legs (via AvatarLegsIK) is cut in MetaOnly.
+        // NOTE: rgbPoseProvider is intentionally NOT disabled here, so switching back to RGB
+        // is instant — only its influence on the legs (via AvatarLegsIK) is cut in MetaOnly.
 
         string driver = condition == Condition.RGB
             ? "legs = MediaPipe IK (AvatarLegsIK on, retargeter off)"

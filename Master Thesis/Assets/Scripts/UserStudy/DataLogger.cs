@@ -1,16 +1,20 @@
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using UnityEngine;
 
 /// <summary>
-/// Silent per-frame logger for the A/B study. Writes three CSVs (joint positions, trial
-/// events, latency) into a StudyData folder. Logs BOTH the RGB (MediaPipe) and Quest leg
-/// joints every frame while a trial is running, regardless of the active condition, so the
-/// two systems can be compared post-hoc on a shared clock.
+/// Silent per-frame logger for the A/B study. Appends to three CSVs (joint positions, trial
+/// events, latency) in a StudyData folder — fixed filenames, opened in append mode, so every
+/// participant/session adds rows rather than overwriting. Logs the avatar's own bone positions
+/// every frame while a trial is running — deliberately never raw MediaPipe/MeTRAbs landmark
+/// coordinates, so every condition/system is measuring the same thing (the avatar's resulting
+/// pose) and stays comparable for offset/jitter analysis. The condition column is the single
+/// system identifier for a row — logged as "HYTRACK" or "MetaQuest" (internal enum names stay
+/// RGB/MetaOnly; see LabelFor) — matching "OptiTrack" from OptitrackDataLogger's rows in the
+/// same shared CSV.
 ///
 /// Put this on the "StudyManager" GameObject alongside <see cref="TrackingManager"/>.
-/// Keys: R starts a trial, E ends it.
+/// Keys: T starts a trial, E ends it.
 /// </summary>
 public class DataLogger : MonoBehaviour
 {
@@ -21,14 +25,17 @@ public class DataLogger : MonoBehaviour
 
     [Header("References")]
     public TrackingManager trackingManager;
-    [Tooltip("RGB source — read for the 'rgb' joint rows.")]
-    public MediaPipePoseReceiver rgbPoseProvider;
-    [Tooltip("Avatar Animator — leg bones read for the 'quest' joint rows (they carry the retargeted Meta pose in MetaOnly).")]
+    [Tooltip("Avatar Animator — every logged joint is read from these bones, never from raw MediaPipe/MeTRAbs coordinates.")]
     public Animator avatarAnimator;
 
     [Header("Keys")]
-    public KeyCode startTrialKey = KeyCode.R;
+    [Tooltip("Was R, but InteractiveObject also binds R to reset the ball — moved to avoid the clash.")]
+    public KeyCode startTrialKey = KeyCode.T;
     public KeyCode endTrialKey = KeyCode.E;
+
+    [Header("Sampling")]
+    [Tooltip("Kept consistent across DataLogger and OptitrackDataLogger so HYTRACK/MetaOnly/OptiTrack are directly comparable for offset/jitter/latency analysis.")]
+    public float logsPerSecond = 6f;
 
     private StreamWriter jointWriter;
     private StreamWriter eventWriter;
@@ -36,10 +43,14 @@ public class DataLogger : MonoBehaviour
 
     private bool trialRunning;
     private int trialId;
+    private string sessionId;
+    private float nextLogTimeMs;
 
-    // Leg joints logged for the Quest source, mapped to the same names the RGB source uses
-    // so the two are directly comparable.
-    private static readonly (HumanBodyBones bone, string joint)[] QuestLegBones =
+    // Legs are condition-dependent (IK pose in RGB, retargeted Meta pose in MetaOnly — the
+    // condition column records which); upper body is always Quest-driven (AvatarHandIK + head
+    // tracking) regardless of condition. Either way, every value here comes from the avatar's
+    // own bones, never from MediaPipe.
+    private static readonly (HumanBodyBones bone, string joint)[] AvatarBones =
     {
         (HumanBodyBones.LeftUpperLeg,  "left_hip"),
         (HumanBodyBones.RightUpperLeg, "right_hip"),
@@ -47,6 +58,13 @@ public class DataLogger : MonoBehaviour
         (HumanBodyBones.RightLowerLeg, "right_knee"),
         (HumanBodyBones.LeftFoot,      "left_ankle"),
         (HumanBodyBones.RightFoot,     "right_ankle"),
+        (HumanBodyBones.LeftUpperArm,  "left_shoulder"),
+        (HumanBodyBones.RightUpperArm, "right_shoulder"),
+        (HumanBodyBones.LeftLowerArm,  "left_elbow"),
+        (HumanBodyBones.RightLowerArm, "right_elbow"),
+        (HumanBodyBones.LeftHand,      "left_wrist"),
+        (HumanBodyBones.RightHand,     "right_wrist"),
+        (HumanBodyBones.Head,          "head"),
     };
 
     void Awake()
@@ -63,16 +81,19 @@ public class DataLogger : MonoBehaviour
     {
         string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "StudyData");
         Directory.CreateDirectory(dir);
-        string stamp = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        sessionId = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
-        jointWriter = OpenCsv(Path.Combine(dir, $"joint_positions_{participantId}_{stamp}.csv"),
-            "timestamp_ms,participant_id,condition,trial_id,source,joint,x,y,z,confidence");
-        eventWriter = OpenCsv(Path.Combine(dir, $"trial_events_{participantId}_{stamp}.csv"),
-            "timestamp_ms,participant_id,trial_id,event_type,condition");
-        latencyWriter = OpenCsv(Path.Combine(dir, $"latency_log_{participantId}_{stamp}.csv"),
-            "timestamp_ms,input_time_ms,avatar_update_time_ms,delta_ms,condition");
+        // Fixed filenames, opened in append mode: every participant/session adds rows to the
+        // same running CSVs instead of spawning a new file per run. session_id disambiguates
+        // runs since trial_id resets to 1 each session.
+        jointWriter = OpenCsvAppend(Path.Combine(dir, "joint_positions.csv"),
+            "timestamp_ms,session_id,participant_id,condition,trial_id,joint,x,y,z,confidence");
+        eventWriter = OpenCsvAppend(Path.Combine(dir, "trial_events.csv"),
+            "timestamp_ms,session_id,participant_id,trial_id,event_type,condition");
+        latencyWriter = OpenCsvAppend(Path.Combine(dir, "latency_log.csv"),
+            "timestamp_ms,session_id,input_time_ms,avatar_update_time_ms,delta_ms,condition");
 
-        Debug.Log($"[Study] Logging to {dir}");
+        Debug.Log($"[Study] Logging to {dir} (session {sessionId})");
     }
 
     void Update()
@@ -89,9 +110,12 @@ public class DataLogger : MonoBehaviour
         if (trialRunning)
         {
             float t = NowMs();
-            LogRgbJoints(t);
-            LogQuestJoints(t);
-            LogLatency(t);
+            if (t >= nextLogTimeMs)
+            {
+                nextLogTimeMs = t + (1000f / Mathf.Max(0.01f, logsPerSecond));
+                LogAvatarJoints(t);
+                LogLatency(t);
+            }
         }
     }
 
@@ -99,6 +123,7 @@ public class DataLogger : MonoBehaviour
     {
         trialId++;
         trialRunning = true;
+        nextLogTimeMs = 0f;
         WriteEvent("TRIAL_START");
         Debug.Log($"[Study] Trial {trialId} START");
     }
@@ -122,44 +147,19 @@ public class DataLogger : MonoBehaviour
             return;
         }
         eventWriter.WriteLine(string.Join(",",
-            F(NowMs()), participantId, Itoa(trialId), "CONDITION_SWITCH", condition.ToString()));
+            F(NowMs()), sessionId, participantId, Itoa(trialId), "CONDITION_SWITCH", LabelFor(condition)));
     }
 
-    private void LogRgbJoints(float t)
-    {
-        if (rgbPoseProvider == null)
-        {
-            return;
-        }
-
-        // Per-joint visibility isn't exposed by the receiver yet, so confidence is coarse:
-        // 1 while the receiver reports tracking, else 0. Refine if the receiver later
-        // surfaces per-landmark visibility.
-        float confidence = rgbPoseProvider.isTracking ? 1f : 0f;
-
-        WriteJoint(t, "rgb", "left_hip", rgbPoseProvider.leftHip, confidence);
-        WriteJoint(t, "rgb", "right_hip", rgbPoseProvider.rightHip, confidence);
-        WriteJoint(t, "rgb", "left_knee", rgbPoseProvider.leftKnee, confidence);
-        WriteJoint(t, "rgb", "right_knee", rgbPoseProvider.rightKnee, confidence);
-        WriteJoint(t, "rgb", "left_ankle", rgbPoseProvider.leftAnkle, confidence);
-        WriteJoint(t, "rgb", "right_ankle", rgbPoseProvider.rightAnkle, confidence);
-    }
-
-    private void LogQuestJoints(float t)
+    private void LogAvatarJoints(float t)
     {
         if (avatarAnimator == null)
         {
             return;
         }
 
-        // These bones carry the retargeted Meta pose while MetaOnly is active; while RGB is
-        // active they carry the IK pose. The condition column records which, so analysis
-        // knows what each row represents.
-        // TODO(hardware): for a truly simultaneous raw-Quest signal in BOTH conditions,
-        // read OVRBody's skeleton joints directly instead of the avatar bones.
-        foreach (var (bone, joint) in QuestLegBones)
+        foreach (var (bone, joint) in AvatarBones)
         {
-            WriteJoint(t, "quest", joint, avatarAnimator.GetBoneTransform(bone), 1f);
+            WriteJoint(t, joint, avatarAnimator.GetBoneTransform(bone), 1f);
         }
     }
 
@@ -173,10 +173,10 @@ public class DataLogger : MonoBehaviour
             return;
         }
         latencyWriter.WriteLine(string.Join(",",
-            F(t), "", F(t), "", ConditionLabel()));
+            F(t), sessionId, "", F(t), "", ConditionLabel()));
     }
 
-    private void WriteJoint(float t, string source, string joint, Transform tf, float confidence)
+    private void WriteJoint(float t, string joint, Transform tf, float confidence)
     {
         if (jointWriter == null || tf == null)
         {
@@ -184,7 +184,7 @@ public class DataLogger : MonoBehaviour
         }
         Vector3 p = tf.position;
         jointWriter.WriteLine(string.Join(",",
-            F(t), participantId, ConditionLabel(), Itoa(trialId), source, joint,
+            F(t), sessionId, participantId, ConditionLabel(), Itoa(trialId), joint,
             F(p.x), F(p.y), F(p.z), F(confidence)));
     }
 
@@ -195,24 +195,40 @@ public class DataLogger : MonoBehaviour
             return;
         }
         eventWriter.WriteLine(string.Join(",",
-            F(NowMs()), participantId, Itoa(trialId), eventType, ConditionLabel()));
+            F(NowMs()), sessionId, participantId, Itoa(trialId), eventType, ConditionLabel()));
     }
 
     private string ConditionLabel()
     {
-        return trackingManager != null ? trackingManager.Current.ToString() : "Unknown";
+        return trackingManager != null ? LabelFor(trackingManager.Current) : "Unknown";
+    }
+
+    // Single-column system identifier for the CSV. Internal enum names (RGB/MetaOnly) stay as
+    // they are — TrackingManager/LegSimulator depend on them — only the logged label changes.
+    private static string LabelFor(TrackingManager.Condition condition)
+    {
+        switch (condition)
+        {
+            case TrackingManager.Condition.RGB: return "HYTRACK";
+            case TrackingManager.Condition.MetaOnly: return "MetaQuest";
+            default: return condition.ToString();
+        }
     }
 
     private static float NowMs()
     {
-        // Shared clock for both sources — the key advantage of in-scene logging.
+        // Shared clock across all rows in this session — the key advantage of in-scene logging.
         return Time.realtimeSinceStartup * 1000f;
     }
 
-    private static StreamWriter OpenCsv(string path, string header)
+    private static StreamWriter OpenCsvAppend(string path, string header)
     {
-        var w = new StreamWriter(path, false) { AutoFlush = true };
-        w.WriteLine(header);
+        bool isNew = !File.Exists(path);
+        var w = new StreamWriter(path, append: true) { AutoFlush = true };
+        if (isNew)
+        {
+            w.WriteLine(header);
+        }
         return w;
     }
 
