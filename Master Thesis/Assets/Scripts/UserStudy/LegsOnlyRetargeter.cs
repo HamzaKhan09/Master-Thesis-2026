@@ -29,6 +29,22 @@ public class LegsOnlyRetargeter : OVRUnityHumanoidSkeletonRetargeter
     private Transform _leftFoot;
     private Transform _rightFoot;
 
+    [Header("Jump (HMD vertical)")]
+    [Tooltip("Same head transform VRRootFollower reads (its vrHeadTarget). AvatarLegsIK is disabled " +
+             "in this condition, so nothing else updates root Y here — without this, the root just " +
+             "stays frozen at whatever height it was when MetaOnly started, jump or not.")]
+    public Transform vrHeadTransform;
+    [Tooltip("Press while standing normally to reset the jump baseline.")]
+    public KeyCode recalibrateHeadHeightKey = KeyCode.J;
+    [Tooltip("Head-height rise (metres) below which it's treated as standing sway/tracking noise, not a jump.")]
+    public float jumpDeadZone = 0.03f;
+    [Tooltip("How fast the applied lift chases the real headset height. This condition has no other Y smoothing at all, so this is the only thing standing between raw HMD noise and the avatar visibly shaking.")]
+    public float jumpFollowSpeed = 25f;
+    private float _calibratedHeadY;
+    private float _baselineRootY;
+    private float _appliedJumpLift;
+    private bool _jumpCalibrated;
+
     protected override void Start()
     {
         if (!debugDriveFullBody)
@@ -64,6 +80,17 @@ public class LegsOnlyRetargeter : OVRUnityHumanoidSkeletonRetargeter
         {
             _leftFoot = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
             _rightFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
+        }
+
+        // Captured once at scene start, when the avatar is presumably already placed correctly
+        // (nothing else adjusts root Y in this condition, same as before this fix). jumpLift is
+        // added on top of this baseline every frame; it never overwrites the RGB-condition
+        // grounding, since AvatarLegsIK owns Y there instead and this component is disabled then.
+        if (vrHeadTransform != null)
+        {
+            _calibratedHeadY = vrHeadTransform.position.y;
+            _baselineRootY = transform.position.y;
+            _jumpCalibrated = true;
         }
     }
 
@@ -104,6 +131,22 @@ public class LegsOnlyRetargeter : OVRUnityHumanoidSkeletonRetargeter
     {
         base.Update();
         SyncKickTargetsToRetargetedFeet();
+
+        if (vrHeadTransform != null && Input.GetKeyDown(recalibrateHeadHeightKey))
+        {
+            _calibratedHeadY = vrHeadTransform.position.y;
+            _baselineRootY = transform.position.y;
+        }
+
+        if (_jumpCalibrated)
+        {
+            float aboveBaseline = vrHeadTransform.position.y - _calibratedHeadY;
+            float rawLift = aboveBaseline > jumpDeadZone ? aboveBaseline - jumpDeadZone : 0f;
+            _appliedJumpLift = Mathf.Lerp(_appliedJumpLift, rawLift, Time.deltaTime * jumpFollowSpeed);
+            Vector3 rootPos = transform.position;
+            rootPos.y = _baselineRootY + _appliedJumpLift;
+            transform.position = rootPos;
+        }
 
         if (!logBodyData || Time.time < _nextBodyLogTime)
         {

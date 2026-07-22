@@ -43,6 +43,18 @@ public class AvatarLegsIK : MonoBehaviour
     public float mediaPipeGroundY = 0f;
     public float groundFollowSpeed = 10f;
 
+    [Header("Jump (HMD vertical)")]
+    [Tooltip("Same head transform VRRootFollower reads (its vrHeadTarget, e.g. OVRCameraRig's CenterEyeAnchor). Only used to detect the headset rising above its calibrated standing height (a jump) — downward movement is ignored on purpose, so this doesn't interact with the separate, still-open crouch issue.")]
+    public Transform vrHeadTransform;
+    [Tooltip("Press while standing normally to reset the jump baseline (e.g. after recentering, or at the start of a session).")]
+    public KeyCode recalibrateHeadHeightKey = KeyCode.J;
+    [Tooltip("Head-height rise (metres) below which it's treated as standing sway/tracking noise, not a jump. Natural head bob while standing is a few mm to ~1cm; real jumps clear this easily.")]
+    public float jumpDeadZone = 0.03f;
+    [Tooltip("How fast the applied jump lift chases a real jump. Kept separate from groundFollowSpeed (tuned slow, for gentle depth-drift correction) so an actual jump doesn't visibly lag behind your real motion.")]
+    public float jumpFollowSpeed = 25f;
+    private float calibratedHeadY;
+    private bool headHeightCalibrated;
+
     [Header("IK Targets")]
     public Transform leftLegIKTarget, rightLegIKTarget;
     public Transform leftKneeIKHint, rightKneeIKHint;
@@ -82,6 +94,12 @@ public class AvatarLegsIK : MonoBehaviour
                 cachedHipOffset = (leftHipBone.position + rightHipBone.position) * 0.5f - transform.position;
                 hipOffsetCalibrated = true;
             }
+        }
+
+        if (vrHeadTransform != null)
+        {
+            calibratedHeadY = vrHeadTransform.position.y;
+            headHeightCalibrated = true;
         }
     }
 
@@ -199,6 +217,13 @@ public class AvatarLegsIK : MonoBehaviour
         {
             trackingSource = LegTrackingSource.Kinect;
             Debug.Log("Switched to Kinect lower body tracking.");
+        }
+
+        if (vrHeadTransform != null && Input.GetKeyDown(recalibrateHeadHeightKey))
+        {
+            calibratedHeadY = vrHeadTransform.position.y;
+            headHeightCalibrated = true;
+            Debug.Log("Recalibrated standing head height for jump detection.");
         }
     }
 
@@ -325,10 +350,28 @@ public class AvatarLegsIK : MonoBehaviour
         // Gated on isTracking so startup (when all spheres overlap) doesn't sink the avatar.
         if (groundFeetToFloor && trackingValid)
         {
+            // Jump lift: MediaPipe's landmarks are hip-relative, so a real jump (whole body
+            // translating upward with the leg pose roughly unchanged) is invisible to the
+            // foot-scaling math above — it would just re-plant the lower foot back to the
+            // floor every frame. The HMD's own absolute vertical tracking is the one signal
+            // that actually sees a jump, so fold it in here as an upward-only offset to the
+            // floor target. Downward deviation is ignored on purpose (crouch is a separate,
+            // already-open issue with its own history — see project memory).
+            float jumpLift = 0f;
+            if (vrHeadTransform != null && headHeightCalibrated)
+            {
+                float aboveBaseline = vrHeadTransform.position.y - calibratedHeadY;
+                jumpLift = aboveBaseline > jumpDeadZone ? aboveBaseline - jumpDeadZone : 0f;
+            }
+
             float lowestFootY = Mathf.Min(scaledLeftAnkle.y, scaledRightAnkle.y);
-            float desiredRootY = transform.position.y + (mediaPipeGroundY - lowestFootY);
+            float desiredRootY = transform.position.y + (mediaPipeGroundY + jumpLift - lowestFootY);
+            // Use the faster jump speed only while actually airborne; revert to the normal
+            // gentle grounding speed once back near baseline, so standing behaviour is
+            // unchanged from before this fix.
+            float effectiveFollowSpeed = jumpLift > 0f ? Mathf.Max(groundFollowSpeed, jumpFollowSpeed) : groundFollowSpeed;
             Vector3 groundedRoot = transform.position;
-            groundedRoot.y = Mathf.Lerp(groundedRoot.y, desiredRootY, Time.deltaTime * groundFollowSpeed);
+            groundedRoot.y = Mathf.Lerp(groundedRoot.y, desiredRootY, Time.deltaTime * effectiveFollowSpeed);
             transform.position = groundedRoot;
         }
 
