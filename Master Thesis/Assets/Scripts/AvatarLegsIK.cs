@@ -52,8 +52,11 @@ public class AvatarLegsIK : MonoBehaviour
     public float jumpDeadZone = 0.03f;
     [Tooltip("How fast the applied jump lift chases a real jump. Kept separate from groundFollowSpeed (tuned slow, for gentle depth-drift correction) so an actual jump doesn't visibly lag behind your real motion.")]
     public float jumpFollowSpeed = 25f;
+    [Tooltip("After Start, keep re-capturing the standing head height for this many seconds instead of locking it on frame 1. Works around the HMD pose not being valid yet on the very first frame — without this, a bad frame-1 reading permanently offsets the avatar upward until J is pressed by hand.")]
+    public float autoCalibrateWindowSeconds = 1f;
     private float calibratedHeadY;
     private bool headHeightCalibrated;
+    private float calibrationWindowEndTime;
 
     [Header("IK Targets")]
     public Transform leftLegIKTarget, rightLegIKTarget;
@@ -100,6 +103,7 @@ public class AvatarLegsIK : MonoBehaviour
         {
             calibratedHeadY = vrHeadTransform.position.y;
             headHeightCalibrated = true;
+            calibrationWindowEndTime = Time.time + autoCalibrateWindowSeconds;
         }
     }
 
@@ -217,6 +221,11 @@ public class AvatarLegsIK : MonoBehaviour
         {
             trackingSource = LegTrackingSource.Kinect;
             Debug.Log("Switched to Kinect lower body tracking.");
+        }
+
+        if (vrHeadTransform != null && Time.time < calibrationWindowEndTime)
+        {
+            calibratedHeadY = vrHeadTransform.position.y;
         }
 
         if (vrHeadTransform != null && Input.GetKeyDown(recalibrateHeadHeightKey))

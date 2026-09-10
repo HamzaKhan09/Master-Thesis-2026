@@ -4373,7 +4373,7 @@ Transform:
   m_GameObject: {fileID: 383579910}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.1, y: -0.1, z: -0.1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -9415,6 +9415,7 @@ MonoBehaviour:
   recalibrateHeadHeightKey: 106
   jumpDeadZone: 0.03
   jumpFollowSpeed: 25
+  autoCalibrateWindowSeconds: 1
   leftLegIKTarget: {fileID: 2092625220}
   rightLegIKTarget: {fileID: 54588114}
   leftKneeIKHint: {fileID: 1338680281}
@@ -9508,6 +9509,7 @@ MonoBehaviour:
   recalibrateHeadHeightKey: 106
   jumpDeadZone: 0.03
   jumpFollowSpeed: 25
+  autoCalibrateWindowSeconds: 1
 --- !u!1 &898634258
 GameObject:
   m_ObjectHideFlags: 0
@@ -11500,7 +11502,7 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1106911528}
   serializedVersion: 4
-  m_Mass: 0.5
+  m_Mass: 0.3
   m_Drag: 1
   m_AngularDrag: 1
   m_CenterOfMass: {x: 0, y: 0, z: 0}
@@ -11692,7 +11694,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a550e7ebded63c94ca0edbe1d25e8e0d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  participantId: P00
+  participantId: P20
   trackingManager: {fileID: 1142677922}
   avatarAnimator: {fileID: 895912711}
   startTrialKey: 115

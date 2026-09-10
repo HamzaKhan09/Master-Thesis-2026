@@ -40,10 +40,13 @@ public class LegsOnlyRetargeter : OVRUnityHumanoidSkeletonRetargeter
     public float jumpDeadZone = 0.03f;
     [Tooltip("How fast the applied lift chases the real headset height. This condition has no other Y smoothing at all, so this is the only thing standing between raw HMD noise and the avatar visibly shaking.")]
     public float jumpFollowSpeed = 25f;
+    [Tooltip("After Start, keep re-capturing the standing head height/root Y for this many seconds instead of locking it on frame 1. Works around the HMD pose not being valid yet on the very first frame — without this, a bad frame-1 reading permanently offsets the avatar upward until J is pressed by hand.")]
+    public float autoCalibrateWindowSeconds = 1f;
     private float _calibratedHeadY;
     private float _baselineRootY;
     private float _appliedJumpLift;
     private bool _jumpCalibrated;
+    private float _calibrationWindowEndTime;
 
     protected override void Start()
     {
@@ -81,16 +84,25 @@ public class LegsOnlyRetargeter : OVRUnityHumanoidSkeletonRetargeter
             _leftFoot = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
             _rightFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
         }
+    }
 
-        // Captured once at scene start, when the avatar is presumably already placed correctly
-        // (nothing else adjusts root Y in this condition, same as before this fix). jumpLift is
-        // added on top of this baseline every frame; it never overwrites the RGB-condition
-        // grounding, since AvatarLegsIK owns Y there instead and this component is disabled then.
+    // Re-captured every time this component is (re-)enabled, i.e. every switch into MetaOnly —
+    // not just the first one. Start() only runs once per component lifetime, but LegSimulator
+    // force-disables this component at scene load and re-enables/disables it on every condition
+    // switch, so a Start()-only capture went stale after the first switch: AvatarLegsIK's
+    // continuous floor-grounding keeps moving the root while RGB is active, so by the 2nd+
+    // switch the old baseline no longer matched the actual grounded height (feet floating or
+    // sinking). jumpLift is added on top of this baseline every frame; it never overwrites the
+    // RGB-condition grounding, since AvatarLegsIK owns Y there instead and this component is
+    // disabled then.
+    void OnEnable()
+    {
         if (vrHeadTransform != null)
         {
             _calibratedHeadY = vrHeadTransform.position.y;
             _baselineRootY = transform.position.y;
             _jumpCalibrated = true;
+            _calibrationWindowEndTime = Time.time + autoCalibrateWindowSeconds;
         }
     }
 
@@ -131,6 +143,12 @@ public class LegsOnlyRetargeter : OVRUnityHumanoidSkeletonRetargeter
     {
         base.Update();
         SyncKickTargetsToRetargetedFeet();
+
+        if (vrHeadTransform != null && Time.time < _calibrationWindowEndTime)
+        {
+            _calibratedHeadY = vrHeadTransform.position.y;
+            _baselineRootY = transform.position.y;
+        }
 
         if (vrHeadTransform != null && Input.GetKeyDown(recalibrateHeadHeightKey))
         {
