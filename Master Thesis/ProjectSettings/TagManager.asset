@@ -8,6 +8,7 @@ TagManager:
   - Foot
   - LeftHand
   - RightHand
+  - Ball
   layers:
   - Default
   - TransparentFX

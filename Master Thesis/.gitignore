@@ -72,3 +72,12 @@ crashlytics-build.properties
 # Temporary auto-generated Android Assets
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
+
+TempAssembly.dll
+
+# MediaPipe model files (large binaries — download via ensure_model_exists in mediapipe_pose_udp.py)
+Tools/*.task
+
+# Python cache
+Tools/__pycache__/
+__pycache__/
