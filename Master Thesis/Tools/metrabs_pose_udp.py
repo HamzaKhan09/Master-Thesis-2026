@@ -7,9 +7,10 @@ MediaPipe one. Only the model and coordinate-conversion differ.
 
 Run inside the dedicated conda env (has torch+cu121 and the MeTRAbs deps):
     conda activate metrabs
-    python Tools/metrabs_pose_udp.py
+    python Tools/metrabs_pose_udp.py --repo <path-to-metrabs-clone>
 
-Requires the cloned MeTRAbs repo + PyTorch model (see --repo / --model-dir defaults).
+Requires the cloned MeTRAbs repo + PyTorch model. There is no default location:
+pass --repo, or set the METRABS_REPO environment variable once.
 """
 
 import argparse
@@ -24,8 +25,9 @@ import cv2
 import numpy as np
 
 # --- MeTRAbs repo / model locations (cloned outside the Unity project) --------
-DEFAULT_REPO = r"C:\Users\Meta_Mobile_2\Documents\metrabs"
-DEFAULT_MODEL_DIR = os.path.join(DEFAULT_REPO, "metrabs_eff2l_384px_800k_28ds_pytorch")
+# Deliberately no default path: the clone lives wherever the user put it, so it comes
+# from --repo or METRABS_REPO. The model dir defaults to this name inside the clone.
+MODEL_DIR_NAME = "metrabs_eff2l_384px_800k_28ds_pytorch"
 
 # The 6 lower-body landmarks, in the exact names the Unity receiver matches on,
 # mapped to their smpl_24 joint indices from the MeTRAbs model.
@@ -101,6 +103,25 @@ class LandmarkSmoother:
 
 def finite(value, fallback=0.0):
     return value if math.isfinite(value) else fallback
+
+
+def resolve_model_paths(repo, model_dir):
+    """Resolve the MeTRAbs clone + model dir, or exit saying exactly what to pass."""
+    repo = repo or os.environ.get("METRABS_REPO")
+    if not repo:
+        sys.exit("No MeTRAbs repo location given. Pass --repo <path-to-metrabs-clone>, "
+                 "or set the METRABS_REPO environment variable.")
+    repo = os.path.abspath(os.path.expanduser(repo))
+    if not os.path.isdir(repo):
+        sys.exit("MeTRAbs repo not found: " + repo +
+                 " -- pass --repo <path-to-metrabs-clone>.")
+
+    model_dir = os.path.abspath(os.path.expanduser(
+        model_dir or os.path.join(repo, MODEL_DIR_NAME)))
+    if not os.path.isdir(model_dir):
+        sys.exit("MeTRAbs model directory not found: " + model_dir +
+                 " -- download the PyTorch model into the repo, or pass --model-dir.")
+    return repo, model_dir
 
 
 def load_metrabs_model(repo, model_dir):
@@ -186,8 +207,10 @@ def main():
     parser.add_argument("--camera", type=int, default=0, help="OpenCV camera index.")
     parser.add_argument("--width", type=int, default=1280, help="Camera capture width.")
     parser.add_argument("--height", type=int, default=720, help="Camera capture height.")
-    parser.add_argument("--repo", default=DEFAULT_REPO, help="Path to the cloned MeTRAbs repo.")
-    parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="MeTRAbs PyTorch model dir.")
+    parser.add_argument("--repo", default=None,
+                        help="Path to the cloned MeTRAbs repo. Falls back to $METRABS_REPO.")
+    parser.add_argument("--model-dir", default=None,
+                        help="MeTRAbs PyTorch model dir (default: " + MODEL_DIR_NAME + " inside --repo).")
     parser.add_argument("--fov", type=float, default=55.0, help="Assumed camera vertical field-of-view (deg).")
     parser.add_argument("--num-aug", type=int, default=2,
                         help="Test-time augmentations: higher = more accurate depth, lower = faster.")
@@ -197,10 +220,13 @@ def main():
     parser.add_argument("--no-preview", action="store_true", help="Run without an OpenCV preview window.")
     args = parser.parse_args()
 
+    # Resolved before the slow torch import so a bad path fails immediately.
+    repo, model_dir = resolve_model_paths(args.repo, args.model_dir)
+
     import torch  # imported after arg parsing so --help stays fast
 
     print("Loading MeTRAbs model (first run also downloads the YOLO detector)...")
-    model = load_metrabs_model(args.repo, args.model_dir)
+    model = load_metrabs_model(repo, model_dir)
     print("Model ready.")
 
     smoother = LandmarkSmoother(
